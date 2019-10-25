@@ -1,15 +1,12 @@
 #!/usr/bin/env python
 # coding: utf-8
-import pathlib
 
 from setuptools import setup
+
 from topa import VERSION
 
-# The directory containing this file
-HERE = pathlib.Path(__file__).parent
-
-# The text of the README file
-README = (HERE / "README.md").read_text()
+with open('README.md', 'r') as f:
+    long_description = f.read()
 
 setup(
     name='topa',
@@ -17,7 +14,8 @@ setup(
     author='JIANG Wenjian',
     author_email='wenjian.jiang@foxmail.com',
     url='https://github.com/jwenjian/topa',
-    description=README,
+    description='A Top Output Python Analyzer',
+    long_description=long_description,
     long_description_content_type='text/markdown',
     license='GPL-3.0',
     packages=['topa'],
