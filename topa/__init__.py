@@ -2,7 +2,7 @@ from functools import reduce
 
 import click
 
-VERSION = '0.0.1'
+VERSION = '1.0.0'
 GITHUB_URL = 'https://github.com/jwenjian/topa'
 
 
