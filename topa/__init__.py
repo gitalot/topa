@@ -1,9 +1,11 @@
+import re
 from functools import reduce
 
 import click
 
-VERSION = '1.0.0'
+VERSION = '1.0.1'
 GITHUB_URL = 'https://github.com/jwenjian/topa'
+PID_LINE_REG_PATTERN = r'[ ]*[\d]+[ ]*[\S\s]+'
 
 
 class ReportOfPid:
@@ -79,15 +81,21 @@ def read_all_lines(filename, pid):
     with open(filename) as f:
         line_str = f.readline()
         processed_count = 1
-        with click.progressbar(length=total_line_count, label='Reading {}'.format(filename)) as bar:
+        with click.progressbar(length=total_line_count, label='Reading `{}`'.format(filename)) as bar:
             while line_str is not None and len(line_str) > 0:
                 processed_count += 1
                 bar.update(1)
-                for p in pid:
-                    if line_str.lstrip().startswith(str(p)):
-                        lines.append(line_str.lstrip())
-                        break
+                if pid and len(pid) > 0:
+                    for p in pid:
+                        if line_str.lstrip().startswith(str(p)):
+                            lines.append(line_str.lstrip())
+                            break
+                else:
+                    lines.append(line_str.lstrip())
                 line_str = f.readline()
+
+    click.echo()
+    click.echo('Done!')
 
     return lines
 
@@ -97,20 +105,39 @@ def line_str_to_info_obj(line: str):
     return LineObj(fields)
 
 
-def do_analyze(all_lines, pid) -> list:
+def do_analyze(all_pid_info_lines, pid) -> list:
     report_list = []
-    for p in pid:
+
+    filtered = list(filter(
+        lambda i: pid is None or len(pid) == 0 or i.pid in pid,
+        # line info to LineObj
+        map(
+            lambda line: line_str_to_info_obj(line),
+            all_pid_info_lines
+        )
+    ))
+
+    group_result = {}
+
+    for item in filtered:
+        _pid = item.pid
+        if _pid not in group_result:
+            group_result[_pid] = []
+        group_result[_pid].append(item)
+
+    for p in group_result:
+        if pid and len(pid) > 0 and p not in pid:
+            continue
         report_of_pid = ReportOfPid()
-        lines_of_pid = list(map(lambda line: line_str_to_info_obj(line),
-                                filter(lambda line: line.startswith(str(p)), all_lines)))
+        lines_of_pid = group_result[p]
         report_of_pid.pid = p
         report_of_pid.total_count = len(lines_of_pid)
 
-        def sort_by_cpu(item: LineObj):
-            return float(item.cpu)
+        def sort_by_cpu(l: LineObj):
+            return float(l.cpu)
 
-        def sort_by_mem(item: LineObj):
-            return float(item.mem)
+        def sort_by_mem(l: LineObj):
+            return float(l.mem)
 
         lines_of_pid.sort(key=sort_by_cpu, reverse=True)
         max_cpu_obj = lines_of_pid[0]
@@ -134,24 +161,26 @@ def do_analyze(all_lines, pid) -> list:
 
 def show_report(report_list: list) -> None:
     click.echo()
-    click.echo('# Report ')
+    click.echo('# Reporting ')
+    click.echo('Report of `{}` process(es) ready in below'.format(len(report_list)))
+    click.echo()
     for report_of_pid in report_list:
         click.echo('## Pid = {}'.format(report_of_pid.pid))
-        click.echo('Total record count = {}'.format(report_of_pid.total_count))
-        click.echo('Max CPU = {}%'.format(report_of_pid.max_cpu))
-        click.echo('Min CPU = {}%'.format(report_of_pid.min_cpu))
-        click.echo('Avg CPU = {:.2f}%'.format(report_of_pid.avg_cpu))
-        click.echo('Max MEM = {}%'.format(report_of_pid.max_mem))
-        click.echo('Min MEM = {}%'.format(report_of_pid.min_mem))
-        click.echo('Avg MEM = {:.2f}%'.format(report_of_pid.avg_mem))
+        click.echo('- Total record count = {}'.format(report_of_pid.total_count))
+        click.echo('- Max CPU = {}%'.format(report_of_pid.max_cpu))
+        click.echo('- Min CPU = {}%'.format(report_of_pid.min_cpu))
+        click.echo('- Avg CPU = {:.2f}%'.format(report_of_pid.avg_cpu))
+        click.echo('- Max MEM = {}%'.format(report_of_pid.max_mem))
+        click.echo('- Min MEM = {}%'.format(report_of_pid.min_mem))
+        click.echo('- Avg MEM = {:.2f}%'.format(report_of_pid.avg_mem))
         click.echo()
 
 
 @click.command(cls=DefaultHelp)
 @click.argument('filename', type=click.Path(exists=True))
-@click.option('--pid', '-p', nargs=1, multiple=True, required=True, type=int, help='The pid list to be analyzed')
+@click.option('--pid', '-p', nargs=1, multiple=True, required=False, type=str, help='The pid list to be analyzed')
 @click.option('--out', '-o', nargs=1, multiple=False, default='STD', show_default=True,
-              type=click.Choice(['STD', 'MD', 'PDF'], case_sensitive=False),
+              type=click.Choice(['STD', 'PDF'], case_sensitive=False),
               help='The analyze report file format')
 def main(pid, out, filename):
     """
@@ -167,8 +196,14 @@ def main(pid, out, filename):
     # read top output files
     all_lines = read_all_lines(filename, pid)
 
+    # pid info lines only
+    def starts_with_pid(line: str):
+        return re.match(PID_LINE_REG_PATTERN, line)
+
+    pid_info_lines = list(filter(starts_with_pid, all_lines))
+
     # do analyze
-    report_list = do_analyze(all_lines, pid)
+    report_list = do_analyze(pid_info_lines, pid)
 
     # show report
     show_report(report_list)
